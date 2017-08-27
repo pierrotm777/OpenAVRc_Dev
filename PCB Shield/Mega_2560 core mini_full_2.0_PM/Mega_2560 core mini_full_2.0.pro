@@ -1,4 +1,4 @@
-update=23/07/2017 15:48:01
+update=22/08/2017 09:50:24
 version=1
 last_client=kicad
 [pcbnew]
@@ -27,7 +27,7 @@ NetIExt=net
 version=1
 [eeschema]
 version=1
-LibDir=
+LibDir=Librairie/Librairie perso.pretty
 [eeschema/libraries]
 LibName1=Mega_2560 core mini_full_2.0-rescue
 LibName2=power
@@ -59,6 +59,7 @@ LibName27=opto
 LibName28=atmel
 LibName29=contrib
 LibName30=valves
+LibName31=Librairie/Librairie perso.pretty/OPEN_EVO
 [schematic_editor]
 version=1
 PageLayoutDescrFile=
