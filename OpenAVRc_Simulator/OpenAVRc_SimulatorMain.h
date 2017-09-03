@@ -1,26 +1,33 @@
-/*
-**************************************************************************
-*                                                                        *
-*              This file is part of the OpenAVRc project.                *
-*                                                                        *
-*                         Based on code named                            *
-*             OpenTx - https://github.com/opentx/opentx                  *
-*                                                                        *
-*                Only AVR code here for lisibility ;-)                   *
-*                                                                        *
-*   OpenAVRc is free software: you can redistribute it and/or modify     *
-*   it under the terms of the GNU General Public License as published by *
-*   the Free Software Foundation, either version 2 of the License, or    *
-*   (at your option) any later version.                                  *
-*                                                                        *
-*   OpenAVRc is distributed in the hope that it will be useful,          *
-*   but WITHOUT ANY WARRANTY; without even the implied warranty of       *
-*   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the        *
-*   GNU General Public License for more details.                         *
-*                                                                        *
-*       License GPLv2: http://www.gnu.org/licenses/gpl-2.0.html          *
-*                                                                        *
-**************************************************************************
+ /*
+ **************************************************************************
+ *                                                                        *
+ *                 ____                ___ _   _____                      *
+ *                / __ \___  ___ ___  / _ | | / / _ \____                 *
+ *               / /_/ / _ \/ -_) _ \/ __ | |/ / , _/ __/                 *
+ *               \____/ .__/\__/_//_/_/ |_|___/_/|_|\__/                  *
+ *                   /_/                                                  *
+ *                                                                        *
+ *              This file is part of the OpenAVRc project.                *
+ *                                                                        *
+ *                         Based on code(s) named :                       *
+ *             OpenTx - https://github.com/opentx/opentx                  *
+ *             Deviation - https://www.deviationtx.com/                   *
+ *                                                                        *
+ *                Only AVR code here for visibility ;-)                   *
+ *                                                                        *
+ *   OpenAVRc is free software: you can redistribute it and/or modify     *
+ *   it under the terms of the GNU General Public License as published by *
+ *   the Free Software Foundation, either version 2 of the License, or    *
+ *   (at your option) any later version.                                  *
+ *                                                                        *
+ *   OpenAVRc is distributed in the hope that it will be useful,          *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of       *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the        *
+ *   GNU General Public License for more details.                         *
+ *                                                                        *
+ *       License GPLv2: http://www.gnu.org/licenses/gpl-2.0.html          *
+ *                                                                        *
+ **************************************************************************
 */
 
 
@@ -152,7 +159,7 @@ private:
   wxColour SetColour();
   void LoadConfig();
   void SaveConfig();
-  void ResetSimu();
+  void ResetSimuLcd();
   void PaintSticks(int x, int y, int xm, int ym, wxPanel* stick);
   void OnClose(wxCloseEvent& event);
   void OnMenuLcdBackSelected(wxCommandEvent& event);
@@ -176,6 +183,14 @@ private:
   void OnBpReaLeftUp(wxMouseEvent& event);
   void OnBpRebLeftDown(wxMouseEvent& event);
   void OnBpRebLeftUp(wxMouseEvent& event);
+  void OnMenuExportEepromSelected(wxCommandEvent& event);
+  void ExportEeprom();
+  void ImportEeprom();
+  void save_EEGeneral_217(EEGeneral General);
+  void save_ModelData_217();
+  void load_EEGeneral_217();
+  void load_ModelData_217();
+  void OnMenuImportEepromSelected(wxCommandEvent& event);
   //*)
 
   //(*Identifiers(OpenAVRc_SimulatorFrame)
@@ -220,6 +235,8 @@ private:
   static const long ID_PANELPRINCIPAL;
   static const long IdMenuOpenEE;
   static const long IdMenuSaveEE;
+  static const long IdMenuExportEeprom;
+  static const long IdImportEeprom;
   static const long idMenuQuit;
   static const long ID_LCDB;
   static const long ID_LCDF;
@@ -241,6 +258,7 @@ private:
   //(*Variables(OpenAVRc_SimulatorFrame)
   wxFileConfig* configFile;
   wxString Ini_Filename;
+  wxFileConfig* eepromfile;
   wxString CurrentEEPath;
 
   wxColour Col_Lcd_Back;
@@ -280,6 +298,7 @@ private:
   wxTimer Timer10ms;
   wxMenuItem* MenuStickBack;
   wxMenuItem* OutputBars;
+  wxMenuItem* MenuExportEeprom;
   wxPanel* RrTrim;
   wxPanel* LdTrim;
   wxSpinButton* SpinRea;
@@ -325,6 +344,7 @@ private:
   wxMenuItem* MenuButOff;
   wxMenuItem* MenuSaveee;
   wxMenuItem* OutputMixeur;
+  wxMenuItem* MenuImportEeprom;
   wxSpinButton* SpinReb;
   wxPanel* LuTrim;
   wxPanel* BpId1;
