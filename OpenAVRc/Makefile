@@ -386,6 +386,10 @@ ifeq ($(PCB), EVO_V1)
     GUIGENERALSRC += gui/menu_general_sdmanager.cpp
     CPPSRC += rtc.cpp sdcard.cpp logs.cpp rtc_driver.cpp
   endif
+  
+  ifeq ($(RTCLOCK), YES)
+    CPPDEFS += -DRTCLOCK
+  endif
 
   ifeq ($(AUDIO), YES)
     CPPDEFS += -DAUDIO
