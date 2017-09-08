@@ -1214,6 +1214,8 @@ void OpenAVRc_SimulatorFrame::load_ModelData_217()
         temp_model.frsky.channels[i].ratio = tmp;
         eepromfile->Read(wxT("frsky.channels"+num+".offset"),&tmp);
         temp_model.frsky.channels[i].offset = tmp;
+        eepromfile->Read(wxT("frsky.channels"+num+".type"),&tmp);
+        temp_model.frsky.channels[i].type = tmp;
         for (int j=0; j<2; ++j) { //alarms_value[2];
           wxString numvalue = wxString::Format(wxT("%i"),j);
           eepromfile->Read(wxT("frsky.channels"+num+".alarms_value"+numvalue),&tmp);
@@ -1539,6 +1541,7 @@ void OpenAVRc_SimulatorFrame::save_ModelData_217()
         wxString num = wxString::Format(wxT("%i"),i);
         eepromfile->Write(wxT("frsky.channels"+num+".ratio"),(int)temp_model.frsky.channels[i].ratio);
         eepromfile->Write(wxT("frsky.channels"+num+".offset"),(int)temp_model.frsky.channels[i].offset);
+        eepromfile->Write(wxT("frsky.channels"+num+".type"),(int)temp_model.frsky.channels[i].type);
         for (int j=0; j<2; ++j) { //alarms_value[2];
           wxString numvalue = wxString::Format(wxT("%i"),j);
           eepromfile->Write(wxT("frsky.channels"+num+".alarms_value"+numvalue),(int)temp_model.frsky.channels[i].alarms_value[j]);
