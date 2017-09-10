@@ -33,6 +33,7 @@ ModelNameDialog::ModelNameDialog(wxWindow* parent,wxWindowID id,const wxPoint& p
 	StaticBox1 = new wxStaticBox(Panel1, ID_STATICBOX1, _("Nom du modèle"), wxPoint(0,0), wxSize(176,64), 0, _T("ID_STATICBOX1"));
 	TextCtrlnewName = new wxTextCtrl(Panel1, ID_TEXTCTRLNEWNAME, _("10 Chars Max"), wxPoint(40,24), wxDefaultSize, wxWANTS_CHARS, validator, _T("ID_TEXTCTRLNEWNAME"));
 	TextCtrlnewName->SetMaxLength(10);
+
 	Connect(ID_TEXTCTRLNEWNAME,wxEVT_COMMAND_TEXT_ENTER,(wxObjectEventFunction)&ModelNameDialog::OnTextCtrlnewNameTextEnter);
 	Connect(wxID_ANY,wxEVT_INIT_DIALOG,(wxObjectEventFunction)&ModelNameDialog::OnInit);
 	//*)
