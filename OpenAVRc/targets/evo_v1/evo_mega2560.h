@@ -121,11 +121,11 @@ bool check_slave_mode(void);
 #define sdDone()
 #define SD_IS_HC()                 (0)
 #define SD_GET_SPEED()             (0)
-#if !defined(SIMU)
+#define SDCARD_CS_N_ACTIVE()    PORTB &= ~PIN0_bm  // MMC CS = L
+#define SDCARD_CS_N_INACTIVE()  PORTB |=  PIN0_bm  // MMC CS = H
 bool sdMounted();
 void sdMountPoll();
 void sdPoll10ms();
-#endif
 
 #if 0
 // Keys driver

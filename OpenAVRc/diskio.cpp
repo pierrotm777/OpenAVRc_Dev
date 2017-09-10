@@ -62,10 +62,6 @@
 #define CT_BLOCK	0x08		/* Block addressing */
 
 /* Port Controls  (Platform dependent) */
-// GCC optimisation should result in a single CBI/SBI instructions here
-#define SDCARD_CS_N_ACTIVE()  PORTB &= ~PIN0_bm // MMC CS = L
-#define SDCARD_CS_N_INACTIVE()  PORTB |= PIN0_bm // MMC CS = H
-
 #define SOCKPORT	PINB			/* Socket contact port */
 #define SOCKWP		0x00 // not implemented /* Write protect switch */
 #define SOCKINS		0x00 // not implemented /* Card detect switch */
