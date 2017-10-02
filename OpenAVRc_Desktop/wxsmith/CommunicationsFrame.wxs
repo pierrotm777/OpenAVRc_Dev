@@ -23,10 +23,6 @@
 		<object class="wxComboBox" name="ID_COMBOBOX2" variable="ComboBox2" member="yes">
 			<content>
 				<item>usb</item>
-				<item>avrdoper</item>
-				<item>/dev/ttyUSB0</item>
-				<item>/dev/ttyUSB1</item>
-				<item>/dev/ttyUSB2</item>
 			</content>
 			<pos>176,120</pos>
 		</object>
@@ -48,8 +44,6 @@
 			<content>
 				<item>m2560</item>
 				<item>m2560fram</item>
-				<item>m128</item>
-				<item>m64</item>
 			</content>
 			<pos>176,168</pos>
 		</object>

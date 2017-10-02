@@ -86,18 +86,12 @@ CommunicationsFrame::CommunicationsFrame(wxWindow* parent,wxWindowID id,const wx
     ComboBox1->Append(_("usbasp"));
     ComboBox2 = new wxComboBox(this, ID_COMBOBOX2, wxEmptyString, wxPoint(176,120), wxDefaultSize, 0, 0, 0, wxDefaultValidator, _T("ID_COMBOBOX2"));
     ComboBox2->Append(_("usb"));
-    ComboBox2->Append(_("avrdoper"));
-    ComboBox2->Append(_("/dev/ttyUSB0"));
-    ComboBox2->Append(_("/dev/ttyUSB1"));
-    ComboBox2->Append(_("/dev/ttyUSB2"));
     StaticText1 = new wxStaticText(this, ID_STATICTEXT1, _("Programmateur"), wxPoint(64,80), wxSize(96,16), 0, _T("ID_STATICTEXT1"));
     ButtonEnter = new wxButton(this, ID_BUTTONENTER, _("Valider"), wxPoint(376,296), wxDefaultSize, 0, wxDefaultValidator, _T("ID_BUTTONENTER"));
     StaticText2 = new wxStaticText(this, ID_STATICTEXT2, _("Port"), wxPoint(112,128), wxDefaultSize, 0, _T("ID_STATICTEXT2"));
     ComboBox3 = new wxComboBox(this, ID_COMBOBOX3, wxEmptyString, wxPoint(176,168), wxDefaultSize, 0, 0, 0, wxDefaultValidator, _T("ID_COMBOBOX3"));
     ComboBox3->Append(_("m2560"));
     ComboBox3->Append(_("m2560fram"));
-    ComboBox3->Append(_("m128"));
-    ComboBox3->Append(_("m64"));
     StaticText3 = new wxStaticText(this, ID_STATICTEXT3, _("Type de radio"), wxPoint(72,176), wxDefaultSize, 0, _T("ID_STATICTEXT3"));
     StaticText5 = new wxStaticText(this, ID_STATICTEXT5, _("Répertoire de avrdude"), wxPoint(32,224), wxDefaultSize, 0, _T("ID_STATICTEXT5"));
     TextCtrl1 = new wxTextCtrl(this, ID_TEXTCTRL1, wxEmptyString, wxPoint(176,216), wxSize(212,21), 0, wxDefaultValidator, _T("ID_TEXTCTRL1"));

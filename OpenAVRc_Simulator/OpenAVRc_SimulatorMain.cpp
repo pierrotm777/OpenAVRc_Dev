@@ -630,8 +630,8 @@ void OpenAVRc_SimulatorFrame::OnQuit(wxCommandEvent& event)
 void OpenAVRc_SimulatorFrame::OnAbout(wxCommandEvent& event)
 {
   wxAboutDialogInfo Aboutbox;
-  Aboutbox.SetName(_("OpenAVRc Simulateur"));
-  Aboutbox.SetVersion(_("V1.15 F-ram"));
+  Aboutbox.SetName("OpenAVRc Simulateur");
+  Aboutbox.SetVersion("V1.15 F-ram");
   Aboutbox.SetLicence(" GPLv2 . Firmware basé sur NextStepRc 2.18 ");
   Aboutbox.SetDescription(_("Simulateur du code OpenAVRc 'toutes options' sur carte Méga 2560     "));
   Aboutbox.SetCopyright(wxT("(C) 2016-2017 OpenAVRc Team"));
@@ -670,14 +670,14 @@ void OpenAVRc_SimulatorFrame::PlayTts()
 void OpenAVRc_SimulatorFrame::LoadEeprom()
 {
   if (Timer10ms.IsRunning()) {
-    wxLogError(_T("Impossible : Simulateur en fonctionnement"));
+    wxLogError(_("Impossible : Simulateur en fonctionnement"));
     return;
   }
   wxFileDialog openFileDialog(this, _("Ouvrir Fichier BIN"), AppPath+ "\\eeprom\\", "","Fichiers BIN (*.bin)|*.bin", wxFD_OPEN|wxFD_FILE_MUST_EXIST);
   if (openFileDialog.ShowModal() == wxID_CANCEL) return;
   wxFileInputStream input_stream(openFileDialog.GetPath());
   if (!input_stream.IsOk()) {
-    wxLogError(_T("Impossible d'ouvrir le fichier '%s'."), openFileDialog.GetPath());
+    wxLogError(_("Impossible d'ouvrir le fichier '%s'."), openFileDialog.GetPath());
     return;
   }
   LoadEepromFile(openFileDialog.GetPath());
@@ -903,7 +903,7 @@ void OpenAVRc_SimulatorFrame::ImportEeprom()
   Timer10ms.Stop();
   ResetSimuLcd();
 
-  wxBusyInfo wait("Importation en cours, attendez SVP......");
+  wxBusyInfo wait_("Importation en cours, attendez SVP......");
 
   if (version == 217) {
     eepromFormat();
@@ -947,7 +947,7 @@ void OpenAVRc_SimulatorFrame::ExportEeprom()
 
   eepromfile = new wxFileConfig( "", "", saveFileDialog.GetPath());
 
-  wxBusyInfo wait("Exportation en cours, attendez SVP......");
+  wxBusyInfo wait_("Exportation en cours, attendez SVP......");
 
 
   if (General.version == 217) {
