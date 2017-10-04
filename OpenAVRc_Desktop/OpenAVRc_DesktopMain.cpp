@@ -257,7 +257,7 @@ OpenAVRc_DesktopFrame::OpenAVRc_DesktopFrame(wxWindow* parent,wxWindowID id)
   ChoiceLangue->Append(_("SE"));
   ChoiceLangue->Append(_("SK"));
   ChoiceLangue->SetToolTip(_("Choisissez la langue des mensages vocales"));
-  StaticText1 = new wxStaticText(Panel1, ID_STATICTEXT1, _("Langue"), wxPoint(456,40), wxDefaultSize, 0, _T("ID_STATICTEXT1"));
+  StaticText1 = new wxStaticText(Panel1, ID_STATICTEXT1, _("Langue"), wxPoint(450,40), wxDefaultSize, 0, _T("ID_STATICTEXT1"));
   StaticText1->SetToolTip(_("Choisissez la langue des mensages vocales"));
   ButtonEditeur = new wxButton(Panel1, ID_BUTTON2, _("Éditeur"), wxPoint(472,72), wxSize(83,23), 0, wxDefaultValidator, _T("ID_BUTTON2"));
   ButtonEditeur->SetToolTip(_("Pour changer les messages"));
