@@ -65,10 +65,13 @@ HIDUniversal                                    Hid(&Usb);
 JoystickEvents                                  JoyEvents(&btnPPMMap);
 JoystickReportParser                            Joy(&JoyEvents);
 
-
+#if defined(__AVR_ATmega328P__)
 #include <SoftwareSerial.h>
 SoftwareSerial BT(7,8);// RX, TX use 57600 maxi
-//HardwareSerial & BT = Serial1;// Only with Leonardo board
+#endif
+#if defined(__AVR_ATmega32U4__) 
+HardwareSerial & BT = Serial1;// Only with Leonardo board
+#endif
 
 //#include <TinyCppmGen.h>
 //#include <Rcul.h>
@@ -109,9 +112,12 @@ void setup()
 //  digitalWrite(sigPin, !onState);  //set the PPM signal pin to the default state (off)
 
 //  TinyCppmGen.begin(TINY_CPPM_GEN_NEG_MOD, NUM_TRAINER, CPPM_PERIOD_US); /* Change CTINY_PPM_GEN_POS_MOD to TINY_CPPM_GEN_NEG_MOD for NEGative CPPM modulation */
-  
+#if defined(__AVR_ATmega328P__)  
   BT.begin(57600);  while (!BT);// wait for serial port to connect.
-
+#endif
+#if defined(__AVR_ATmega32U4__)  
+  BT.begin(115200);  while (!BT);// wait for serial port to connect.
+#endif
 /*
   cli();
   TCCR1A = 0; // set entire TCCR1 register to 0
