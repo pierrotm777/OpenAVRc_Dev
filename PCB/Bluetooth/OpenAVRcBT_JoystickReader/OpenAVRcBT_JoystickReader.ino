@@ -1,3 +1,4 @@
+
 /*
 **************************************************************************
 *                                                                        *
@@ -30,41 +31,40 @@
 ************************************************************************** 
 */
 
-/* 
- Simplified Logitech Extreme 3D Pro Joystick Report Parser 
- Original code by lexfp https://github.com/lexfp/le3dpToPPM
-*/
-
 /*
- Command an OpenAVRc radio with a Logitech 3D Pro Joystick over a HC-05
-*/
-
+ Libraries used for this project:
+ USB_Host_Shield_2.0: https://github.com/felis/USB_Host_Shield_2.0
+ Rc-Navy libraries  : (Rcul, TinyPinChange, TinyCppmGen) https://github.com/RC-Navy/DigisparkArduinoIntegration/tree/master/libraries
+ SoftwareSerial     : https://github.com/PaulStoffregen/SoftwareSerial
+ */
 
 #include <usbhid.h>
 #include <hiduniversal.h>
 #include <usbhub.h>
-
-#include "le3dp_rptparser.h"
-
-// Satisfy the IDE, which needs to see the include statment in the ino too.
-#ifdef dobogusinclude
-#include <spi4teensy3.h>
-#endif
+#include "le3dp_rptparser2.0.h"
 #include <SPI.h>
+#include "LCDDisplay.h"
 
-//PPM config values
-#define FRAME_LENGTH 22500  //set the PPM frame length in microseconds (1ms = 1000µs)
-#define PULSE_LENGTH 300  //set the pulse length
-#define onState 1  //set polarity of the pulses: 1 is positive, 0 is negative
-#define sigPin 3  //set PPM signal output pin on the arduino
+#include "RcModeConfig.h"
 
-BtnPPMMap btnPPMMap;
-USB                                             Usb;
-USBHub                                          Hub(&Usb);
-HIDUniversal                                    Hid(&Usb);
-JoystickEvents                                  JoyEvents(&btnPPMMap);
-JoystickReportParser                            Joy(&JoyEvents);
+//#define AT_INIT
+//#define DEBUG
 
+#define PPM         0
+#define BLUETOOTH   1
+#define MODE PPM //Select PPM or BLUETOOTH
+
+
+#define NUM_CHANNELS   8
+#if (MODE == PPM)
+#include <Rcul.h>
+#include <TinyPinChange.h>
+#include <TinyCppmGen.h>
+#define CPPM_PERIOD_US 22500
+#endif
+
+#if (MODE == BLUETOOTH)
+uint16_t BLUETOOTH_BAUDS;
 #if defined(__AVR_ATmega328P__)
 #include <SoftwareSerial.h>
 SoftwareSerial BT(7,8);// RX, TX use 57600 maxi
@@ -72,13 +72,19 @@ SoftwareSerial BT(7,8);// RX, TX use 57600 maxi
 #if defined(__AVR_ATmega32U4__) 
 HardwareSerial & BT = Serial1;// Only with Leonardo board
 #endif
+#endif
 
-//#include <TinyCppmGen.h>
-//#include <Rcul.h>
-#define CPPM_PERIOD_US  22500
-#define PPM_CENTER      1500
-#define NUM_TRAINER     8
-int16_t channelOutputs[NUM_TRAINER];
+RCState rcs;
+
+USB                                             Usb;
+USBHub                                          Hub(&Usb);
+HIDUniversal                                    Hid(&Usb);
+JoystickEvents                                  JoyEvents;
+JoystickReportParser                            Joy(&JoyEvents, &rcs);
+
+LCDDisplay lcd_display;
+
+int16_t channelOutputs[NUM_CHANNELS];
 #define FULL_CHANNEL_OUTPUTS(ch) channelOutputs[ch]
 uint16_t ppmOut[8];
 
@@ -91,72 +97,210 @@ uint16_t ppmOut[8];
 #define BIN_NBL_TO_HEX_DIGIT(BinNbl)      ((BinNbl) < 10) ? ((BinNbl) + '0'): ((BinNbl) - 10 + 'A')
 
 
-
 void setup()
 {
+  lcd_display.setup();
+ 
   Serial.begin( 115200 );
+  
 #if !defined(__MIPSEL__)
   while (!Serial); // Wait for serial port to connect - used on Leonardo, Teensy and other boards with built-in USB CDC serial connection
 #endif
+
   Serial.println("Start");
-
   if (Usb.Init() == -1)
-    Serial.println("OSC did not start.");
-
+      Serial.println("OSC did not start.");
+  lcd_display.display_oerr();
   delay( 200 );
 
   if (!Hid.SetReportParser(0, &Joy))
-    ErrorMessage<uint8_t>(PSTR("SetReportParser"), 1  );
+      ErrorMessage<uint8_t>(PSTR("SetReportParser"), 1  );
+  
+  lcd_display.display_herr();
 
-  pinMode(sigPin, OUTPUT);
-//  digitalWrite(sigPin, !onState);  //set the PPM signal pin to the default state (off)
+  AileronNbChannel = (uint8_t)pgm_read_byte(&ChannelOrder[channelsOrder].Aileron);//AILERON + 1;
+  ElevatorNbChannel   = (uint8_t)pgm_read_byte(&ChannelOrder[channelsOrder].Elevator);//THROTTLE + 1;
+  RudderNbChannel  = (uint8_t)pgm_read_byte(&ChannelOrder[channelsOrder].Rudder);//RUDDER + 1;
+  ThrottleNbChannel  = (uint8_t)pgm_read_byte(&ChannelOrder[channelsOrder].Throttle);//RUDDER + 1;
 
-//  TinyCppmGen.begin(TINY_CPPM_GEN_NEG_MOD, NUM_TRAINER, CPPM_PERIOD_US); /* Change CTINY_PPM_GEN_POS_MOD to TINY_CPPM_GEN_NEG_MOD for NEGative CPPM modulation */
+  // Serial.print("Ail:");Serial.print(AileronNbChannel);
+  // Serial.print("\tEle:");Serial.print(ElevatorNbChannel);
+  // Serial.print("\tRud:");Serial.print(RudderNbChannel);
+  // Serial.print("\tThr:");Serial.println(ThrottleNbChannel);
+  
+  rcs.init();
+
+  
+
+#if (MODE == PPM)
+  //ppmEncoder.begin(PPM_OUTPUT_PIN);
+  TinyCppmGen.begin(TINY_CPPM_GEN_NEG_MOD, NUM_CHANNELS, CPPM_PERIOD_US);//Futaba use negative pulse
+#endif
+
+#ifdef AT_INIT
+  #undef MODE
+  Serial.begin( 9600 );//need to be < BT speed in this mode
+  BT.begin(38400);while (!BT);
+  InitBtAuto();
+  delay(500);
+  ReadBTSettings();
+#endif
+  
+#if (MODE == BLUETOOTH)
 #if defined(__AVR_ATmega328P__)  
   BT.begin(57600);  while (!BT);// wait for serial port to connect.
 #endif
 #if defined(__AVR_ATmega32U4__)  
   BT.begin(115200);  while (!BT);// wait for serial port to connect.
 #endif
-/*
-  cli();
-  TCCR1A = 0; // set entire TCCR1 register to 0
-  TCCR1B = 0;
-
-  OCR1A = 100;  // compare match register, change this
-  TCCR1B |= (1 << WGM12);  // turn on CTC mode
-  TCCR1B |= (1 << CS11);  // 8 prescaler: 0,5 microseconds at 16mhz
-  TIMSK1 |= (1 << OCIE1A); // enable timer compare interrupt
-  sei();
-*/
+#endif
+  
+  
 }
+
+
+bool is_connected = true;
+int update_now = 0;
 
 void loop()
 {
-  Usb.Task();
-  if (Usb.getUsbTaskState() != USB_STATE_RUNNING)
-  {
-    //disconnected joystick
-    JoyEvents.disconnectJoystick();
-    //Serial.println("Joystick disconnected");
-  }
 
-  for (uint8_t ch = 0; ch < 8 ; ch++)
+#ifdef AT_INIT
+  if (BT.available())  
+  Serial.write(BT.read());
+
+  if (Serial.available())  
+  BT.write(Serial.read());
+#else   
+  update_now++;
+  //
+  int Xval;   // 0 - 1023
+  int Yval;   // 0 - 1023
+  int Hat;    // 0 - 15;
+  int Twist;  // 0 - 255
+  int Slider; // 0 - 255
+  int Button; // 0 - 12 (0 = No button)
+  
+  Usb.Task();
+  
+  if (Usb.getUsbTaskState() == USB_STATE_RUNNING)
   {
-    ppmOut[ch] = btnPPMMap.getChannelValue(ch);
+    if (is_connected == true)
+    {
+      //already connected, do nothing
+    }
+    else
+    {
+      is_connected = true;
+      rcs.is_connected = true;
+      Serial.println("joystick connected");
+      lcd_display.display_joystick_connected();
+      delay(200);
+      lcd_display.clear();
+    }
   }
-//  Serial.print(ppmOut[1]);
-//  Serial.print("\t");Serial.print(ppmOut[2]);
-//  Serial.print("\t");Serial.print(ppmOut[3]);
-//  Serial.print("\t");Serial.print(ppmOut[4]);
-//  Serial.print("\t");Serial.print(ppmOut[5]);
-//  Serial.print("\t");Serial.print(ppmOut[6]);
-//  Serial.print("\t");Serial.print(ppmOut[7]);
-//  Serial.print("\t");Serial.println(ppmOut[8]);
-  //btnPPMMap.debug();
-  BT_Send_Channels();  
+  else
+  {
+
+    if (is_connected == false)
+    {
+      //already disconnected, do nothing
+    }
+    else
+    {
+      is_connected = false;
+      rcs.is_connected = false;
+      Serial.println("joystick disconnected");
+      lcd_display.display_joystick_disconnected();
+      delay(200);
+    }
+  }  
+  
+  if (update_now > 15)
+  {
+    if (is_connected)
+    {
+      lcd_display.display(rcs.flight_mode_code, rcs.channel5, (byte)rcs.camera_mode, rcs.auto_center);
+      lcd_display.print_all(&rcs);
+      //lcd_display.display_rx_rssi(frsky_accessor.link_down);
+      //lcd_display.display_tx_rssi(frsky_accessor.link_up);
+    }
+    update_now = 0;
+  }  
+
+  //Use to read joystick input to controller
+  //JoyEvents.PrintValues();                                       //Returns joystick values to user
+  //JoyEvents.GetValues(Xval, Yval, Hat, Twist, Slider, Button);   //Copies joystick values to user
+  JoyEvents.GetValues(Hat, Button);
+  
+  rcs.data_updated();
+  
+  rcs.hat_changed((HAT_POSITION) Hat);
+
+  rcs.hat_tick();
+  
+  rcs.button_changed(Button);
+  rcs.OnButtonUp(Button);
+  rcs.OnButtonDn(Button);
+
+/*
+ElevatorNbChannel;
+RudderNbChannel;
+AileronNbChannel;
+ThrottleNbChannel;
+*/
+  
+  ppmOut[AileronNbChannel] = rcs.roll;
+  ppmOut[ElevatorNbChannel] = rcs.pitch;
+  ppmOut[ThrottleNbChannel] = rcs.throttle;
+  ppmOut[RudderNbChannel] = rcs.yaw;
+  ppmOut[4] = ((rcs.channel5) ? rcs.MAX_VALUE : rcs.MIN_VALUE);
+  ppmOut[5] = rcs.flight_mode;
+  ppmOut[6] = rcs.camera_pitch;
+  ppmOut[7] = rcs.camera_yaw;
+    
+#if (MODE == PPM)
+    for (uint8_t ch = 0; ch<8;ch++)
+    {
+      TinyCppmGen.setChWidth_us(ch+1, ppmOut[ch]);
+    }
+#endif
+
+#if (MODE == BLUETOOTH)
+  BT_Send_Channels();
+#endif
+
+#ifdef DEBUG
+  Serial.print("Trottle:");
+  Serial.print(rcs.throttle);
+  Serial.print(" Aileron:");
+  Serial.print(rcs.roll);
+  Serial.print(" Elevator:");
+  Serial.print(rcs.pitch);
+  Serial.print(" Rudder:");
+  Serial.print(rcs.yaw);
+
+  Serial.print(" CH5:");
+  Serial.print((rcs.channel5) ? rcs.MAX_VALUE : rcs.MIN_VALUE);
+  
+  Serial.print(" Fly Mode:");
+  Serial.print(rcs.flight_mode);
+  Serial.print(" Camera Mode:");
+  Serial.print((uint8_t)rcs.camera_mode);
+  Serial.print(" Cam Pitch:");
+  Serial.print(rcs.camera_pitch);
+  Serial.print(" Cam Yaw:");
+  Serial.println(rcs.camera_yaw);
+#endif
+#endif
+
+//  Serial.print(" Cam Pitch:");
+//  Serial.print(ppmOut[6]);
+//  Serial.print(" Cam Yaw:");
+//  Serial.println(ppmOut[7]);  
 }
 
+#if (MODE == BLUETOOTH)
 void BT_Send_Channels()
 {
   char txt;
@@ -165,7 +309,7 @@ void BT_Send_Channels()
   BT.print(F("tf "));
   bt += "tf ";
  
-  for(uint8_t Idx = 0; Idx < NUM_TRAINER; Idx++)
+  for(uint8_t Idx = 0; Idx < NUM_CHANNELS; Idx++)
   {
 
    BT.print('s');
@@ -192,6 +336,8 @@ void BT_Send_Channels()
   bt += (String)txt;
   BT.println(txt);
 }
+#endif
+
 
 #ifdef AT_INIT          // AT configuration of the HC05, to make once time
 void InitBtAuto()
@@ -201,7 +347,12 @@ void InitBtAuto()
   if (!waitFor("OK\r\n")) Serial.println("time out error AT");
 
   Serial.print("UART: ");               // serial communication parameters
-  BT.print("AT+UART=115200,0,0\r\n");
+#if defined(__AVR_ATmega328P__)
+  BT.print("AT+UART=57600,0,0\r\n");//57600
+#endif
+#if defined(__AVR_ATmega32U4__) 
+  BT.print("AT+UART=115200,0,0\r\n");//115200
+#endif
   if (!waitFor("OK\r\n")) Serial.println("time out error AT+UART");
 
   Serial.print("NAME: ");               // bluetooth device name
@@ -216,15 +367,20 @@ void InitBtAuto()
   BT.print("AT+ROLE=0\r\n");
   if (!waitFor("OK\r\n")) Serial.println("time out error AT+ROLE");
 
-//  Serial.print("RMAAD: ");              // Delete all authenticated devices in the pair list
-//  BT.print("AT+RMAAD\r\n");
-//  if (!waitFor("OK\r\n")) Serial.println("time out error AT+RMAAD");
+//  digitalWrite(MODULE_KEY, LOW);            // leave AT mode & switch back to communication mode
+}
 
-//  Serial.print("CMODE: ");              // connection mode
-//  BT.print("AT+CMODE=0\r\n");
-//  if (!waitFor("OK\r\n")) Serial.println("time out error AT+CMODE");
+void ReadBTSettings()
+{
+  BT.print("AT\r\n");
 
-  digitalWrite(MODULE_KEY, LOW);            // leave AT mode & switch back to communication mode
+  BT.print("AT+UART\r\n");
+
+  BT.print("AT+NAME\r\n");
+
+  BT.print("AT+PSWD\r\n");
+
+  BT.print("AT+ROLE\r\n");
 }
 
 //  The waitFor a string function with time out
@@ -250,36 +406,3 @@ char c;
 }
 
 #endif
-
-/*
-ISR(TIMER1_COMPA_vect) { //leave this alone
-  static boolean state = true;
-
-  TCNT1 = 0;
-
-  if (state) {  //start pulse
-    digitalWrite(sigPin, onState);
-    OCR1A = PULSE_LENGTH * 2;
-    state = false;
-  } else { //end pulse and calculate when to start the next pulse
-    static byte cur_chan_numb;
-    int channelValue;
-    static unsigned int calc_rest;
-
-    digitalWrite(sigPin, !onState);
-    state = true;
-
-    if (cur_chan_numb >= BtnPPMMap::NUM_CHANNELS) {
-      cur_chan_numb = 0;
-      calc_rest = calc_rest + PULSE_LENGTH;//
-      OCR1A = (FRAME_LENGTH - calc_rest) * 2;
-      calc_rest = 0;
-    }
-    else {
-      channelValue = btnPPMMap.getChannelValue(cur_chan_numb);
-      OCR1A = (channelValue - PULSE_LENGTH) * 2;
-      calc_rest = calc_rest + channelValue;
-      cur_chan_numb++;
-    }
-  }
-*/
