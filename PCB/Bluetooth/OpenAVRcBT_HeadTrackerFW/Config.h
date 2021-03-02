@@ -11,7 +11,7 @@
 // features.
 //
 
-
+#define OPENAVRC // add OpenAVRc feature
 
 // Set to 1 to enable PPM input, 0 to disable. 
 #define PPM_IN  0

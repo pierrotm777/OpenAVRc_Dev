@@ -4,9 +4,9 @@
 //-----------------------------------------------------------------------------
 #include "config.h"
 
-//#ifdef OPENAVRC_BT
+#ifdef OPENAVRC
 int ppmOut[8];
-//#endif
+#endif
 
 // Use this code if SENSOR_HMC5883 defined only
 #ifdef SENSOR_HMC5883
@@ -528,11 +528,11 @@ void FilterSensorData()
             temp = servoRollCenter + rollAngleTemp;
             channel_value[htChannels[2]] = temp;
         }
-//#ifdef OPENAVRC_BT        
-        ppmOut[5] = channel_value[htChannels[0]];//map(tiltAngleLP - tiltStart + 90,0,180,1000,2000);//1800 2400 
-        ppmOut[6] = channel_value[htChannels[1]];//map(rollAngleLP - rollStart + 90,0,180,1000,2000);//1692 3249
-        ppmOut[7] = channel_value[htChannels[2]];//map(panAngleLP + 180,0,180,1000,2000);//2000 2100
-//#endif
+#ifdef OPENAVRC        
+        ppmOut[5] = channel_value[htChannels[0]];
+        ppmOut[6] = channel_value[htChannels[1]];
+        ppmOut[7] = channel_value[htChannels[2]];        
+#endif
     }
 }
 

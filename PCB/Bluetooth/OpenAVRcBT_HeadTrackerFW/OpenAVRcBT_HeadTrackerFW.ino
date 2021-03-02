@@ -38,7 +38,7 @@
 // 
 // Roll axis over bluetooth can be enabled by un-commenting the marked sections of code.
 //
- #define BT_SOFTSERIAL		// ****  Un-comment this line to enable SoftwareSerial  ****
+// #define BT_SOFTSERIAL		// ****  Un-comment this line to enable SoftwareSerial  ****
 //
 //-----------------------------------------------------------------------------
 //
@@ -115,9 +115,7 @@
 
 #include <EEPROM.h>
 
-#define OPENAVRC_BT // add OpenAVRc feature
-
-#ifdef OPENAVRC_BT
+#ifdef OPENAVRC
 #include "OpenAVRc_BT.h"
 #define BT_MSG_MAX_LENGTH      39
 char BtMessage[BT_MSG_MAX_LENGTH + 1];
@@ -225,13 +223,6 @@ char serialDataChar = ' ';
 
 #ifdef BT_SOFTSERIAL
 
-//#include <SoftwareSerial.h>
-
-char btSerial_data[96];          // Array for serial-data
-unsigned char btSerial_index = 0; // How many bytes have been received?
-char btString_started = 0;
-char btSerialDataChar = ' ';
-
 #if defined(__AVR_ATmega328P__)
 #include <SoftwareSerial.h>
 SoftwareSerial btSerial(7,8);// RX, TX use 57600 maxi
@@ -240,6 +231,10 @@ SoftwareSerial btSerial(7,8);// RX, TX use 57600 maxi
 HardwareSerial & btSerial = Serial1;// Only with Leonardo board
 #endif
 
+char btSerial_data[96];          // Array for serial-data
+unsigned char btSerial_index = 0; // How many bytes have been received?
+char btString_started = 0;
+char btSerialDataChar = ' ';
 #endif
 
 //	  ****  Uncomment this section and other 'roll' sections to support roll axis over bluetoooth  ****
@@ -390,8 +385,14 @@ void setup() {
     }
 
     // Start PWM interrupt if not sending tracker data over bluetooth
-    if (bluetoothMode != BLUETOOTH_MODE_TRACKER) InitPWMInterrupt();         
+    if (bluetoothMode != BLUETOOTH_MODE_TRACKER) InitPWMInterrupt();
       InitTimerInterrupt();    // Start timer interrupt (for sensors and button press)
+
+#ifdef OPENAVRC
+    ppmEncoder.begin(4);
+#endif
+    
+      
     if (bluetoothMode != BLUETOOTH_MODE_RECEIVER) {
         InitSensors();	// Initialize I2C sensors
         CalibrateMag();
@@ -1131,8 +1132,18 @@ void loop() {
         read_sensors = 0;
     }
     
-#ifdef OPENAVRC_BT
-        BT_Send_Channels();
+#ifdef OPENAVRC
+// bloque HeadTrackerGUI.exe
+//  Serial.print(ppmOut[5]);
+//  Serial.print("\t");Serial.print(ppmOut[6]);
+//  Serial.print("\t");Serial.println(ppmOut[7]);
+#ifdef BT_SOFTSERIAL
+  BT_Send_Channels();
+#else
+  ppmEncoder.setChannel(5, ppmOut[5]);
+  ppmEncoder.setChannel(6, ppmOut[6]);
+  ppmEncoder.setChannel(7, ppmOut[7]);
+#endif
 #endif     
 }// end loop
 
@@ -1476,7 +1487,8 @@ void DebugOutput() {
 }
 
 
-#ifdef OPENAVRC_BT
+#ifdef OPENAVRC
+#ifdef BT_SOFTSERIAL
 int16_t mini = 2000,maxi;
 void BT_Send_Channels()
 {
@@ -1514,16 +1526,10 @@ void BT_Send_Channels()
   bt += (String)txt;
   //btSerial.println(txt);
 
-  //Serial.println(bt);
-
-//  Serial.print(ppmOut[1]);
-//  Serial.print("\t");Serial.print(ppmOut[2]);
-//  Serial.print("\t");Serial.print(ppmOut[3]);
-//  Serial.print("\t");Serial.print(ppmOut[4]);
-//  Serial.print("\t");Serial.print(ppmOut[5]);
+  Serial.println(bt);
+//  Serial.print(ppmOut[5]);
 //  Serial.print("\t");Serial.print(ppmOut[6]);
-//  Serial.print("\t");Serial.print(ppmOut[7]);
-//  Serial.print("\t");Serial.println(ppmOut[8]);
+//  Serial.print("\t");Serial.println(ppmOut[7]);
 
 //#define DEBUG_OPENAVRC
 #ifdef DEBUG_OPENAVRC
@@ -1549,6 +1555,5 @@ void BT_Send_Channels()
   }
 #endif   
 }
- 
-
+#endif 
 #endif

@@ -151,7 +151,8 @@ ISR(TIMER1_OVF_vect) //interrupt routine not initialized in TIMSK1 as of v1.09
 // Desc: Timer 1 compare A vector
 // generating PPM out
 //--------------------------------------------------------------------------------------
-ISR(TIMER1_COMPA_vect)
+
+/*ISR(TIMER1_COMPA_vect)
 {
     if (OCR1A == FRAME_LENGTH)
     {
@@ -212,7 +213,7 @@ ISR(TIMER1_COMPA_vect)
         }
     }
 }  
-
+*/
 //--------------------------------------------------------------------------------------
 // Func: TIMER0_COMPA_vect
 // Desc: Timer 0 compare A vector Sensor-interrupt. We query sensors on a timer, not

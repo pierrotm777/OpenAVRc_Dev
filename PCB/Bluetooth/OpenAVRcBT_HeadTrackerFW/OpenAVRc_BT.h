@@ -1,5 +1,8 @@
-#ifndef OpenAVRc_BT_h
-#define OpenAVRc_BT_h
+#ifndef OPENAVRC_h
+#define OPENAVRC_h
+
+
+#include "PPMEncoder.h"
 
 #define PPM_CENTER      1500
 #define NUM_TRAINER     8
