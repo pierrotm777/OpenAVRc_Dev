@@ -69,10 +69,8 @@ UCLI_DEF(help,  [cmd]);
 #if defined(SDCARD)
 UCLI_DEF(ls,    [directory]);
 UCLI_DEF(cp,    srcfile dstfile);
-#if defined(XMODEM)
 UCLI_DEF(xsend, SD/file);
 UCLI_DEF(xrecv, SD/file);
-#endif
 UCLI_DEF(rmdir, directory);
 UCLI_DEF(rm,    file);
 UCLI_DEF(mv,    srcfile dstfile);
@@ -89,10 +87,8 @@ UCLI_DEF(reboot, );
 UCLI_CMD_TBL(uCliCmd) = { UCLI_CMD(help),
               CASE_SDCARD(UCLI_CMD(ls))
               CASE_SDCARD(UCLI_CMD(cp))
-#if defined(XMODEM)
               CASE_SDCARD(UCLI_CMD(xsend))
               CASE_SDCARD(UCLI_CMD(xrecv))
-#endif
               CASE_SDCARD(UCLI_CMD(rmdir))
               CASE_SDCARD(UCLI_CMD(rm))
               CASE_SDCARD(UCLI_CMD(mv))

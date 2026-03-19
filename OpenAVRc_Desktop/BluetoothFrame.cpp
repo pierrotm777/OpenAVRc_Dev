@@ -31,12 +31,16 @@
 */
 
 #include <wx/msgdlg.h>
-
+#include <wx/frame.h>
+#include <wx/textctrl.h>
+#include <wx/sizer.h>
+#include <cstdarg>
+#include <cstdio>
 
 #include "BluetoothFrame.h"
 #include "OpenAVRc_DesktopMain.h"
 #include "../OpenAVRc/thirdparty/xmodem/xmodem.cpp"
-
+#include "tcp/tcpport.h"
 #define SD_ROOT ("/")
 
 #define START_TIMOUT() \
@@ -50,6 +54,173 @@
  (x == SD_ROOT) // x is a wxString
 
 Tserial *BTComPort;
+
+static wxFrame* XmdmLogFrame = nullptr;
+static wxTextCtrl* XmdmLogCtrl = nullptr;
+
+static void EnsureXmdmLogWindow(wxWindow* parent)
+{
+  if (XmdmLogFrame && XmdmLogCtrl) return;
+
+  XmdmLogFrame = new wxFrame(parent, wxID_ANY, "XMODEM Log",
+                             wxDefaultPosition, wxSize(700, 250),
+                             wxDEFAULT_FRAME_STYLE | wxFRAME_FLOAT_ON_PARENT);
+
+  XmdmLogCtrl = new wxTextCtrl(XmdmLogFrame, wxID_ANY, "",
+                               wxDefaultPosition, wxDefaultSize,
+                               wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH2);
+
+  wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);
+  sizer->Add(XmdmLogCtrl, 1, wxEXPAND | wxALL, 5);
+  XmdmLogFrame->SetSizer(sizer);
+  XmdmLogFrame->Layout();
+  XmdmLogFrame->Show();
+}
+
+void XmdmLogClear()
+{
+  if (XmdmLogCtrl) XmdmLogCtrl->Clear();
+}
+
+void XmdmLog(const char* fmt, ...)
+{
+  if (!XmdmLogCtrl) return;
+
+  char buf[512];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+
+  XmdmLogCtrl->AppendText(wxString::FromUTF8(buf));
+  XmdmLogCtrl->AppendText("\n");
+}
+
+static void XmdmLogBufferHex(const char* tag, const char* buffer, int len)
+{
+  if (!buffer || len <= 0)
+    {
+      XmdmLog("%s <empty>", tag);
+      return;
+    }
+
+  char line[512];
+  int pos = snprintf(line, sizeof(line), "%s", tag);
+  for (int i = 0; i < len && pos < (int)sizeof(line) - 4; ++i)
+    {
+      pos += snprintf(line + pos, sizeof(line) - pos, " %02X", (unsigned char)buffer[i]);
+    }
+  XmdmLog("%s", line);
+}
+
+// Optional RAW TCP transport (add-only, does not change serial behavior)
+TcpPort *BTNetPort = nullptr;
+bool UseTcpPort = false;
+
+// Transport-neutral helpers (COM or TCP). Used by UI and by XMODEM macros.
+static inline void BT_Flush() {
+  if (UseTcpPort && BTNetPort) BTNetPort->flush();
+  else BTComPort->flush();
+}
+static inline int BT_GetNbrOfBytes() {
+  if (UseTcpPort && BTNetPort) return BTNetPort->getNbrOfBytes();
+  return BTComPort->getNbrOfBytes();
+}
+static inline int BT_GetArray(char* buf, int len) {
+  if (UseTcpPort && BTNetPort) return BTNetPort->getArray(buf, len);
+  return BTComPort->getArray(buf, len);
+}
+static inline int BT_SendArray(const char* buf, int len) {
+  if (UseTcpPort && BTNetPort) return BTNetPort->sendArray(buf, len);
+  // Tserial::sendArray returns void
+  BTComPort->sendArray((char*)buf, len);
+  return len;
+}
+
+// --- Exported functions required by BluetoothFrame.h XMODEM macros ---
+int BT_AnyAvailable() {
+  return BT_GetNbrOfBytes();
+}
+int BT_AnyReadByte() {
+  char b = 0;
+  int r = BT_GetArray(&b, 1);
+  if (r <= 0) return -1;
+  return (unsigned char)b;
+}
+int BT_AnyWrite(const char* buf, int len) {
+  return BT_SendArray(buf, len);
+}
+void BT_AnyFlushRx() {
+  BT_Flush();
+}
+
+static bool IsTcpSpec(const wxString& s) {
+  return s.Upper().StartsWith("TCP:");
+}
+static bool ParseTcpSpec(const wxString& s, wxString& host, int& port) {
+  // Accept formats:
+  //   TCP:192.168.0.31:3333
+  //   TCP:192.168.0.31
+  wxString t = s;
+  if (!t.Upper().StartsWith("TCP:")) return false;
+  t = t.Mid(4); // after TCP:
+  port = 3333;
+
+  int colon = t.Find(':');
+  if (colon == wxNOT_FOUND) {
+    host = t;
+    return host.Length() > 0;
+  }
+
+  host = t.Left(colon);
+  wxString pstr = t.Mid(colon + 1);
+  long p;
+  if (pstr.ToLong(&p) && p > 0 && p < 65536) port = (int)p;
+  return host.Length() > 0;
+}
+
+// Send FT:STA on control port 3334 (best effort, add-only)
+// This allows Desktop to start ESP32 FT automatically before using DATA port 3333.
+static void SendFtCtrl(const wxString& host, const char* cmd)
+{
+  if (host.IsEmpty() || cmd == nullptr || *cmd == '\0') return;
+
+  TcpPort ctrl;
+  if (ctrl.connect(host, 3334)) {
+    ctrl.sendArray(cmd, (int)strlen(cmd));
+    ctrl.disconnect();
+  }
+}
+
+// Remember last TCP endpoint so we can send control command on exit
+static wxString gLastTcpHost;
+static int gLastTcpDataPort = 3333;
+
+
+// Scan LAN for ESP32 FT CTRL servers (port 3334) and append TCP entries.
+// Add-only: does not change COM behavior.
+static void ScanTcpDevices(wxComboBox* combo)
+{
+  const int PORT_CTRL = 3334;
+  // DHCP range (Freebox): 192.168.0.10 .. 192.168.0.50
+  for (int i = 10; i <= 50; i++) {
+    wxString ip = wxString::Format("192.168.0.%d", i);
+    TcpPort test;
+    if (test.connect(ip, PORT_CTRL)) {
+      // Optionally ask status (best effort)
+      const char* cmd = "FT:STATUS\n";
+      test.sendArray(cmd, (int)strlen(cmd));
+      test.disconnect();
+
+      wxString entry = wxString::Format("TCP:%s:3333", ip);
+      if (combo->FindString(entry) == wxNOT_FOUND) {
+        combo->Append(entry);
+      }
+    }
+  }
+}
+
+
 
 #if defined(USE_DDE_LINK)
 // DDE
@@ -105,13 +276,13 @@ Create(parent, wxID_ANY, _("Bluetooth"), wxDefaultPosition, wxDefaultSize, wxDEF
 SetClientSize(wxSize(645,409));
 Panel1 = new wxPanel(this, ID_PANEL1, wxPoint(392,176), wxDefaultSize, wxTAB_TRAVERSAL, _T("ID_PANEL1"));
 StaticBoxCom = new wxStaticBox(Panel1, ID_STATICBOX1, _("Communication"), wxPoint(8,8), wxSize(624,88), 0, _T("ID_STATICBOX1"));
-ComboBoxCom = new wxComboBox(Panel1, ID_COMBOBOX1, wxEmptyString, wxPoint(64,32), wxSize(72,23), 0, 0, 0, wxDefaultValidator, _T("ID_COMBOBOX1"));
+ComboBoxCom = new wxComboBox(Panel1, ID_COMBOBOX1, wxEmptyString, wxPoint(64,32), wxSize(160,23), 0, 0, 0, wxDefaultValidator, _T("ID_COMBOBOX1"));
 StaticText1 = new wxStaticText(Panel1, ID_STATICTEXT1, _("Port :"), wxPoint(16,32), wxSize(40,16), wxALIGN_RIGHT, _T("ID_STATICTEXT1"));
-StaticText2 = new wxStaticText(Panel1, ID_STATICTEXT2, _("Mémoire libre :"), wxPoint(160,32), wxSize(96,16), wxALIGN_RIGHT, _T("ID_STATICTEXT2"));
-StaticTextFreeMem = new wxStaticText(Panel1, ID_STATICTEXT3, _("------"), wxPoint(264,32), wxSize(56,16), wxALIGN_LEFT, _T("ID_STATICTEXT3"));
+StaticText2 = new wxStaticText(Panel1, ID_STATICTEXT2, _("MÃ©moire libre :"), wxPoint(328,48), wxSize(96,16), wxALIGN_RIGHT, _T("ID_STATICTEXT2"));
+StaticTextFreeMem = new wxStaticText(Panel1, ID_STATICTEXT3, _("------"), wxPoint(432,48), wxSize(56,16), wxALIGN_LEFT, _T("ID_STATICTEXT3"));
 StaticTextVersion = new wxStaticText(Panel1, ID_STATICTEXT4, wxEmptyString, wxPoint(24,64), wxSize(360,16), 0, _T("ID_STATICTEXT4"));
 BitmapButtonReboot = new wxBitmapButton(Panel1, ID_REBOOTBUTTON, wxArtProvider::GetBitmap(wxART_MAKE_ART_ID_FROM_STR(_T("wxART_WARNING")),wxART_BUTTON), wxPoint(568,24), wxSize(48,24), wxBU_AUTODRAW, wxDefaultValidator, _T("ID_REBOOTBUTTON"));
-BitmapButtonReboot->SetToolTip(_("Redémarrer"));
+BitmapButtonReboot->SetToolTip(_("RedÃ©marrer"));
 StaticBoxLocal1 = new wxStaticBox(Panel1, ID_STATICBOX2, _("Local"), wxPoint(8,104), wxSize(216,296), 0, _T("ID_STATICBOX2"));
 StaticBoxSD = new wxStaticBox(Panel1, ID_STATICBOXSD, _("Carte SD"), wxPoint(232,104), wxSize(216,296), 0, _T("ID_STATICBOXSD"));
 TctrlSd = new wxTreeCtrl(Panel1, ID_TREECTRLSD, wxPoint(240,120), wxSize(200,272), wxTR_DEFAULT_STYLE, wxDefaultValidator, _T("ID_TREECTRLSD"));
@@ -135,6 +306,8 @@ Connect(wxID_ANY,wxEVT_CLOSE_WINDOW,(wxObjectEventFunction)&BluetoothFrame::OnCl
  {
   SetIcon(wxICON(oavrc_icon));
  }
+
+ EnsureXmdmLogWindow(this);
 
  Connect(wxID_ANY, wxEVT_COMMAND_MENU_SELECTED, (wxObjectEventFunction)&BluetoothFrame::OnSdPopupChoice);
  DirCtrl->Connect(wxID_ANY, wxEVT_TREE_BEGIN_DRAG, wxTreeEventHandler(BluetoothFrame::OnDirCtrlBeginDrag), NULL, this);
@@ -165,7 +338,25 @@ BluetoothFrame::~BluetoothFrame()
 
 void BluetoothFrame::OnClose(wxCloseEvent& event)
 {
+ // If using TCP FT bridge, ask ESP32 to leave FT mode on exit (best effort)
+ if (UseTcpPort && !gLastTcpHost.IsEmpty()) {
+  SendFtCtrl(gLastTcpHost, "FT:OFF\n");
+  // Backward compatibility (older firmwares)
+  SendFtCtrl(gLastTcpHost, "w off\n");
+  // Compatibility: some firmwares may use a different stop command
+  //SendFtCtrl(gLastTcpHost, "FT:STP\n"); // legacy stop (unused)
+ }
+
+ // Disconnect TCP transport if used
+ if (BTNetPort) {
+  BTNetPort->disconnect();
+  delete BTNetPort;
+  BTNetPort = NULL;
+ }
+ UseTcpPort = false;
+
  if (BTComPort != NULL) delete BTComPort;
+ if (XmdmLogFrame) { XmdmLogFrame->Destroy(); XmdmLogFrame = NULL; XmdmLogCtrl = NULL; }
 #if defined(USE_DDE_LINK)
  if (dynDdeConnectionOut != NULL) delete dynDdeConnectionOut;
  if (dynDdeConnectionIn != NULL) delete dynDdeConnectionIn;
@@ -192,17 +383,39 @@ void BluetoothFrame::DetectSerial()
      ComboBoxCom->Insert(ComName,0); // add to the ComboBox
     }
   }
+  // Add RAW TCP option (ESP32 FT bridge)
+  if (ComboBoxCom->FindString("TCP:192.168.0.31:3333") == wxNOT_FOUND)
+    ComboBoxCom->Append("TCP:192.168.0.31:3333");
 }
 
 void BluetoothFrame::ConnectBTCom(wxString name)
 {
  int error;
- char comMame[10];
- strncpy(comMame, (const char*)name.mb_str(wxConvUTF8), 10);
+ char comMame[64];
+ strncpy(comMame, (const char*)name.mb_str(wxConvUTF8), 63);
+ comMame[63] = 0;
  assert(BTComPort);
  wxBusyCursor wait;
- error = BTComPort->connect(comMame, 115200, spNONE);
- if (error == 0)
+ if (IsTcpSpec(name)) {
+  // RAW TCP mode: use ComboBox value like "TCP:192.168.1.37:3333"
+  wxString host; int port;
+  if (!ParseTcpSpec(name, host, port)) {
+    error = -1;
+  } else {
+    SendFtCtrl(host, "FT:STA\n");
+
+    gLastTcpHost = host;
+    gLastTcpDataPort = port;
+
+    if (!BTNetPort) BTNetPort = new TcpPort();
+    UseTcpPort = BTNetPort->connect(host, port);
+    error = UseTcpPort ? 0 : -1;
+  }
+} else {
+  UseTcpPort = false;
+  error = BTComPort->connect(comMame, 115200, spNONE);
+}
+if (error == 0)
   {
    comIsValid = true;
    Gauge->SetRange(100);
@@ -216,22 +429,27 @@ void BluetoothFrame::ConnectBTCom(wxString name)
  else
   {
    wxString intString = wxString::Format(wxT("%i"), error);
-   wxMessageBox("Erreur N°"+ intString + " port COM");
+   wxMessageBox("Erreur N"+ intString + " port COM");
   }
 }
 
 void BluetoothFrame::OnComboBoxComDropdown(wxCommandEvent& event)
 {
- Gauge->Pulse();
- BTComPort->disconnect();
- ComboBoxCom->Clear();
- StaticTextFreeMem->SetLabel("------");
- StaticTextFreeMem->Update();
- StaticTextVersion->SetLabel("");
- StaticTextVersion->Update();
- TctrlSd->DeleteAllItems();
- DetectSerial();
+  Gauge->Pulse();
+  if (UseTcpPort && BTNetPort) { BTNetPort->disconnect(); UseTcpPort=false; } else { BTComPort->disconnect(); }
+  ComboBoxCom->Clear();
+  StaticTextFreeMem->SetLabel("------");
+  StaticTextFreeMem->Update();
+  StaticTextVersion->SetLabel("");
+  StaticTextVersion->Update();
+  TctrlSd->DeleteAllItems();
+
+  DetectSerial();   // contient dÃ©jÃ  Append("TCP:192.168.0.31:3333")
+
+  event.Skip();
 }
+
+
 
 void BluetoothFrame::OnComboBoxComSelected(wxCommandEvent& event)
 {
@@ -247,18 +465,27 @@ wxString BluetoothFrame::sendCmdAndWaitForResp(wxString BTcommand, wxString* BTa
 {
  if (comIsValid)
   {
-   BTComPort->flush();  // flush buffer
+   BT_Flush();  // flush buffer
 
    int16_t l = BTcommand.length();
    if (l != 0)
     {
-     char cstring[40];
+     char cstring[40] = {0};
      strncpy(cstring, (const char*)BTcommand.mb_str(wxConvUTF8), l);
-     char CRLF[2] = {'\r','\n'};
-     BTComPort->sendArray(cstring, l); // Send uCli command
-     BTComPort->sendArray(CRLF, 2); // Send EOL+CR
+     XmdmLog("[FT CTRL] TX: %s", cstring);
+     // Desktop uCLI over TCP: send CR only to avoid empty-command on LF
+     if (UseTcpPort) {
+       char CR = '\r';
+       BT_SendArray(cstring, l); // Send uCli command
+       BT_SendArray(&CR, 1);     // CR only
+     }
+     else {
+       char CRLF[2] = {'\r','\n'};
+       BT_SendArray(cstring, l); // Send uCli command
+       BT_SendArray(CRLF, 2);    // CRLF for COM
+     }
      wxBusyCursor wait;
-     int Num = BTComPort->getNbrOfBytes();
+     int Num = BT_GetNbrOfBytes();
 
      for( int i=0; i<10; ++i)
       {
@@ -268,22 +495,64 @@ wxString BluetoothFrame::sendCmdAndWaitForResp(wxString BTcommand, wxString* BTa
          wxYieldIfNeeded();
         }
        while (timout);
-       int newNum = BTComPort->getNbrOfBytes();
+       int newNum = BT_GetNbrOfBytes();
        if (newNum > Num) Num = newNum;
        else break;
       }
+     XmdmLog("[FT CTRL] RX bytes=%d", Num);
      if (Num)
       {
        char buffer[Num+1] = {0};
-       BTComPort->getArray(buffer, Num);
+       BT_GetArray(buffer, Num);
+       XmdmLogBufferHex("[FT CTRL] RX HEX:", buffer, Num);
        *BTanwser = (const char*)(buffer);
-       if(!(BTanwser->StartsWith(uCLI))) return "ERR";
-       BTcommand = BTanwser->BeforeFirst(wxUniChar('\r'));
-       BTcommand = BTcommand.AfterFirst(wxUniChar('>'));
-       *BTanwser = BTanwser->AfterFirst(wxUniChar('\n'));
-       Sleep(200);
-       return BTcommand;
+       XmdmLog("[FT CTRL] RX TXT: %s", (const char*)BTanwser->mb_str(wxConvUTF8));
+
+       // Normal case: prompt is at the beginning: "uCLI>cmd:\r\nanswer..."
+       if (BTanwser->StartsWith(uCLI))
+        {
+         BTcommand = BTanwser->BeforeFirst(wxUniChar('\r'));
+         BTcommand = BTcommand.AfterFirst(wxUniChar('>'));
+         *BTanwser = BTanwser->AfterFirst(wxUniChar('\n'));
+         if (BTanwser->EndsWith(uCLI))
+          {
+           BTanwser->RemoveLast(uCLI.length());
+          }
+         while (BTanwser->EndsWith("\r") || BTanwser->EndsWith("\n"))
+          {
+           BTanwser->RemoveLast();
+          }
+         XmdmLog("[FT CTRL] parsed ret=%s", (const char*)BTcommand.mb_str(wxConvUTF8));
+         XmdmLog("[FT CTRL] parsed answer=%s", (const char*)BTanwser->mb_str(wxConvUTF8));
+         Sleep(200);
+         return BTcommand;
+        }
+
+       // Some replies arrive as: "cmd:\r\nanswer\r\nuCLI>"
+       if (BTanwser->EndsWith(uCLI))
+        {
+         wxString full = *BTanwser;
+         BTcommand = full.BeforeFirst(wxUniChar('\r'));
+         full = full.AfterFirst(wxUniChar('\n'));
+         if (full.EndsWith(uCLI))
+          {
+           full.RemoveLast(uCLI.length());
+          }
+         while (full.EndsWith("\r") || full.EndsWith("\n"))
+          {
+           full.RemoveLast();
+          }
+         *BTanwser = full;
+         XmdmLog("[FT CTRL] parsed ret=%s", (const char*)BTcommand.mb_str(wxConvUTF8));
+         XmdmLog("[FT CTRL] parsed answer=%s", (const char*)BTanwser->mb_str(wxConvUTF8));
+         Sleep(200);
+         return BTcommand;
+        }
+
+       XmdmLog("[FT CTRL] RX invalid prompt (expected %s)", (const char*)uCLI.mb_str(wxConvUTF8));
+       return "ERR";
       }
+     XmdmLog("[FT CTRL] RX timeout/no data");
     }
   }
 #if defined(USE_DDE_LINK)
@@ -311,7 +580,7 @@ wxString BluetoothFrame::sendCmdAndWaitForResp(wxString BTcommand, wxString* BTa
 void BluetoothFrame::OnBitmapButtonRebootClick(wxCommandEvent& event)
 {
  char Reboot[] = {'r','e','b','o','o','t','\r','\n'};
- BTComPort->sendArray(Reboot, sizeof(Reboot)); // Send BTcommand
+ BT_SendArray(Reboot, sizeof(Reboot)); // Send BTcommand
  OnComboBoxComDropdown(event);
 }
 
@@ -333,7 +602,7 @@ wxString BluetoothFrame::getAndShowRam()
 {
  wxString ram;
  sendCmdAndWaitForResp("ram", &ram);
- ram.BeforeFirst('\r'); // remove all after \r (\n)
+ ram = ram.BeforeFirst('\r'); // remove all after \r (\n)
  StaticTextFreeMem->SetLabel(ram);
  StaticTextFreeMem->Update();
  return ram;
@@ -343,7 +612,7 @@ wxString BluetoothFrame::getAndShowVer()
 {
  wxString ver;
  sendCmdAndWaitForResp("ver", &ver);
- ver.BeforeFirst('\r'); // remove all after \r (\n)
+ ver = ver.BeforeFirst('\r'); // remove all after \r (\n)
  ver.Replace("\036"," ");
  ver.Replace("\037"," ");
  ver.Replace("\033"," ");
@@ -499,14 +768,49 @@ void BluetoothFrame::HddToSdCpy(wxString dest, wxString file)
     }
    wxString file2 = file.AfterLast('\\');
    file2.Replace(" ","_");
-   wxString uCliCommand = "cp xmdm SD" + dest + file2;
+   //wxString uCliCommand = "cp xmdm SD" + dest + file2;
+   wxString uCliCommand = "xrecv SD" + dest + file2;
 //wxMessageBox(uCliCommand);
    wxString BTanwser = "";
-   wxString retVal = sendCmdAndWaitForResp(uCliCommand, &BTanwser);
-   Sleep(200);
+   wxString retVal = "";
+   XmdmLogClear();
+   XmdmLog("[DESKTOP] cmd: %s", (const char*)uCliCommand.mb_str(wxConvUTF8));
+
+   // Flush stale CLI bytes BEFORE sending xrecv, otherwise XSend may read old uCLI text
+   // instead of the first XMODEM handshake byte.
+   BT_Flush();
+
+   // IMPORTANT: xrecv/xsend and XMODEM use the same data link.
+   // Do NOT wait for a uCLI response here, otherwise we may consume handshake bytes
+   // that must be read by XSend/XReceive.
+   int16_t l = uCliCommand.length();
+   if (l != 0)
+    {
+     char cstring[128] = {0};
+     strncpy(cstring, (const char*)uCliCommand.mb_str(wxConvUTF8), sizeof(cstring)-1);
+     XmdmLog("[FT CTRL] TX: %s", cstring);
+     if (UseTcpPort)
+      {
+       char CR = '\r';
+       BT_SendArray(cstring, l);
+       BT_SendArray(&CR, 1);
+      }
+     else
+      {
+       char CRLF[2] = {'\r','\n'};
+       BT_SendArray(cstring, l);
+       BT_SendArray(CRLF, 2);
+      }
+    }
+
+   XmdmLog("[DESKTOP] retVal: %s", (const char*)retVal.mb_str(wxConvUTF8));
+   XmdmLog("[DESKTOP] answer: %s", (const char*)BTanwser.mb_str(wxConvUTF8));
    Set_BluetoothFrame_Gauge_Pointer(Gauge);
-   int ret = XSend(file.c_str());
-   if (retVal == "-8") wxMessageBox(_("Le fichier existe déjà"));
+   wxCharBuffer srcPath = file.mb_str(wxConvFile);
+   XmdmLog("[DESKTOP] starting XSend file=%s", srcPath.data());
+   int ret = XSend(srcPath.data());
+   XmdmLog("[DESKTOP] XSend ret=%d", ret);
+   if (retVal == "-8") wxMessageBox(_("Le fichier existe dj"));
    if (ret) wxMessageBox(wxString::Format(wxT("%i"),ret));
    Gauge->SetValue(0);
    Gauge->SetRange(100);
@@ -525,11 +829,43 @@ void BluetoothFrame::SDToHddCpy(wxString dest, wxString file)
      file.Replace("[","/");
      file.Replace("]","/");
     }
-   wxString uCliCommand = "cp SD" + file + " xmdm";
+   //wxString uCliCommand = "cp SD" + file + " xmdm";
+   wxString uCliCommand = "xsend SD" + file;
 //wxMessageBox(uCliCommand);
    wxString BTanwser = "";
-   wxString retVal = sendCmdAndWaitForResp(uCliCommand, &BTanwser);
-   Sleep(200);
+   wxString retVal = "";
+   XmdmLogClear();
+   XmdmLog("[DESKTOP] cmd: %s", (const char*)uCliCommand.mb_str(wxConvUTF8));
+
+   // Flush stale CLI bytes BEFORE sending xsend, otherwise XReceive may read old uCLI text
+   // instead of the first XMODEM handshake byte.
+   BT_Flush();
+
+   // IMPORTANT: xrecv/xsend and XMODEM use the same data link.
+   // Do NOT wait for a uCLI response here, otherwise we may consume handshake bytes
+   // that must be read by XSend/XReceive.
+   int16_t l = uCliCommand.length();
+   if (l != 0)
+    {
+     char cstring[128] = {0};
+     strncpy(cstring, (const char*)uCliCommand.mb_str(wxConvUTF8), sizeof(cstring)-1);
+     XmdmLog("[FT CTRL] TX: %s", cstring);
+     if (UseTcpPort)
+      {
+       char CR = '\r';
+       BT_SendArray(cstring, l);
+       BT_SendArray(&CR, 1);
+      }
+     else
+      {
+       char CRLF[2] = {'\r','\n'};
+       BT_SendArray(cstring, l);
+       BT_SendArray(CRLF, 2);
+      }
+    }
+
+   XmdmLog("[DESKTOP] retVal: %s", (const char*)retVal.mb_str(wxConvUTF8));
+   XmdmLog("[DESKTOP] answer: %s", (const char*)BTanwser.mb_str(wxConvUTF8));
    if (wxDirExists(dest)) // this is a dir ?
     {
      dest += "\\";
@@ -545,7 +881,10 @@ void BluetoothFrame::SDToHddCpy(wxString dest, wxString file)
     }
    dest += file.AfterLast('/');
    Set_BluetoothFrame_Gauge_Pointer(Gauge);
-   int ret = XReceive(dest.c_str());
+   wxCharBuffer dstPath = dest.mb_str(wxConvFile);
+   XmdmLog("[DESKTOP] starting XReceive file=%s", dstPath.data());
+   int ret = XReceive(dstPath.data());
+   XmdmLog("[DESKTOP] XReceive ret=%d", ret);
 //wxMessageBox(retVal);
    if (ret) wxMessageBox(wxString::Format(wxT("%i"),ret));
    Gauge->SetValue(0);
@@ -613,7 +952,7 @@ void BluetoothFrame::OnTctrlSdItemRightClick(wxTreeEvent& event)
    pop.Append(POPUP_ID_DELETE, _("Supprimer"));
    if (IS_SD_ROOT(destName))
     {
-     pop.Append(POPUP_ID_CREATE_REPERTORY, _("Créer un répertoire")); // We don't support sub dir.
+     pop.Append(POPUP_ID_CREATE_REPERTORY, _("CrÃ©er un rÃ©pertoire")); // We don't support sub dir.
     }
    PopupMenu(&pop);
   }
@@ -746,7 +1085,7 @@ bool BluetoothFrame::DdeConnectTo(wxString ExtServerName)
  dynDdeConnectionOut = (DdeConnectionOut *)dynDdeClient->MakeConnection(hostName, ExtServerName, DdeTopicName);
  if (dynDdeConnectionOut)
   {
-   wxMessageBox("trouvé !", "Client serveur");
+   wxMessageBox("trouvÃ© !", "Client serveur");
    dynDdeConnectionOut->Poke(DdeTopicName,"TOTO");
   }
  else

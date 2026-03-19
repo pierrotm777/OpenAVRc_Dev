@@ -77,22 +77,6 @@
  #include "../../uCli.h" // for UCLI_CMD_LINE_MAX_SIZE def
  wxGauge* GaugeCpy;
  extern void XmdmLog(const char* fmt, ...);
- static const char* XmdmDbgChar(uint8_t bVal)
- {
-  static char buf[8];
-  if(bVal >= 32 && bVal <= 126)
-   {
-    buf[0] = 39;
-    buf[1] = (char)bVal;
-    buf[2] = 39;
-    buf[3] = 0;
-   }
-  else
-   {
-    snprintf(buf, sizeof(buf), "0x%02X", (unsigned char)bVal);
-   }
-  return buf;
- }
 #endif
 
 // common definitions (Placed here for FW, SIMU and Desktop)
@@ -276,7 +260,9 @@ void WriteXmodemBlock(const void *pBuf, uint8_t cbSize)
 **/
 void XmodemTerminate(XModemSt_t *pX)
 {
+#ifndef DESKTOP
  BTSERFLUSHRX();
+#endif
 // TODO:  close files? YES
 }
 
@@ -575,7 +561,6 @@ int8_t SendXmodem(XModemSt_t *pX)
 int8_t XReceiveSub(XModemSt_t *pX)
 {
  uint8_t i1;
- int16_t cb;
 
 #ifdef DESKTOP
  XmdmLog("[XMDM] XReceiveSub start");
@@ -583,15 +568,11 @@ int8_t XReceiveSub(XModemSt_t *pX)
 
  for(i1 = 0; i1 < CNX_TRY_COUNT_MAX; i1++)
   {
-#ifdef DESKTOP
-   XmdmLog("[XMDM] XReceiveSub try=%u send NAK", (unsigned int)(i1 + 1));
-#endif
    WriteXmodemChar(_NAK_); // switch to NAK for XMODEM Checksum
-   cb = GetXmodemBlock(&(pX->buf.cSOH), 1);
-   if(cb == 1)
+   if(GetXmodemBlock(&(pX->buf.cSOH), 1) == 1)
     {
 #ifdef DESKTOP
-     XmdmLog("[XMDM] XReceiveSub rx=%s", XmdmDbgChar((uint8_t)pX->buf.cSOH));
+     XmdmLog("[XMDM] XReceiveSub first char=0x%02X", (unsigned char)pX->buf.cSOH);
 #endif
      if(pX->buf.cSOH == _SOH_) // SOH - packet is on its way
       {
@@ -602,33 +583,15 @@ int8_t XReceiveSub(XModemSt_t *pX)
       }
      else if(pX->buf.cSOH == _EOT_) // an EOT [blank file?  allow this?]
       {
-#ifdef DESKTOP
-       XmdmLog("[XMDM] XReceiveSub got EOT");
-#endif
        return 1; // canceled
       }
      else if(pX->buf.cSOH == _CAN_) // cancel
       {
-#ifdef DESKTOP
-       XmdmLog("[XMDM] XReceiveSub got CAN");
-#endif
        return 1; // canceled
       }
-#ifdef DESKTOP
-     XmdmLog("[XMDM] XReceiveSub unexpected char=%s", XmdmDbgChar((uint8_t)pX->buf.cSOH));
-#endif
     }
-#ifdef DESKTOP
-   else
-    {
-     XmdmLog("[XMDM] XReceiveSub no response after NAK");
-    }
-#endif
   }
  XmodemTerminate(pX);
-#ifdef DESKTOP
- XmdmLog("[XMDM] XReceiveSub timeout/fail");
-#endif
 
  return -3; // fail
 }
@@ -649,45 +612,33 @@ int8_t XReceiveSub(XModemSt_t *pX)
 int8_t XSendSub(XModemSt_t *pX)
 {
  uint16_t ulStart;
- int16_t cb;
 #ifdef DESKTOP
  XmdmLog("[XMDM] XSendSub start");
- XmdmLog("[XMDM] XSendSub waiting handshake (NAK/CAN)");
 #endif
 
 // waiting up to 10 seconds for transfer to start. This is part of the spec?
  ulStart = GET_TICK();
  do
   {
-   cb = GetXmodemBlock(&(pX->buf.cSOH), 1);
-   if(cb == 1)
+   if(GetXmodemBlock(&(pX->buf.cSOH), 1) == 1)
     {
 #ifdef DESKTOP
-     XmdmLog("[XMDM] XSendSub rx=%s", XmdmDbgChar((uint8_t)pX->buf.cSOH));
+     XmdmLog("[XMDM] XSendSub first char=0x%02X", (unsigned char)pX->buf.cSOH);
 #endif
      if(pX->buf.cSOH == _NAK_) // NAK - XMODEM CHECKSUM
       {
-#ifdef DESKTOP
-       XmdmLog("[XMDM] XSendSub handshake OK (NAK)");
-#endif
        return SendXmodem(pX);
       }
      else if(pX->buf.cSOH == _CAN_) // cancel
       {
-#ifdef DESKTOP
-       XmdmLog("[XMDM] XSendSub handshake canceled (CAN)");
-#endif
        return 1; // canceled
       }
-#ifdef DESKTOP
-     XmdmLog("[XMDM] XSendSub unexpected handshake char=%s", XmdmDbgChar((uint8_t)pX->buf.cSOH));
-#endif
     }
   }
  while((GET_TICK() - ulStart) < (uint16_t)CNX_TIMEOUT_MS);   // 10 seconds
  XmodemTerminate(pX);
 #ifdef DESKTOP
- XmdmLog("[XMDM] XSendSub timeout/fail after %u ticks", (unsigned int)(GET_TICK() - ulStart));
+ XmdmLog("[XMDM] XSendSub timeout/fail");
 #endif
 
  return -3; // fail

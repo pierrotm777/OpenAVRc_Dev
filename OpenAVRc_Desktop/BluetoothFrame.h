@@ -44,6 +44,7 @@
 #endif
 
 #include "serial/tserial.h"
+#include "tcp/tcpport.h"  // Added: ensures TcpPort is a complete type for any inline/macro usage
 
 //(*Headers(BluetoothFrame)
 #include <wx/bmpbuttn.h>
@@ -226,8 +227,11 @@ wxFile *FileOpenForRead(char *FullFileName);
 #ifndef PACK
  #define PACK( __Declaration__ ) __Declaration__ __attribute__((__packed__))
 #endif
-#define HTONS(x)  __builtin_bswap16((uint16_t) (x))
-// Specific definitions
+#ifndef HTONS
+ #define HTONS(x)  __builtin_bswap16((uint16_t) (x))
+#endif
+
+// Specific Desktop XMODEM definitions
 #define FILE_DESC                          wxFile *
 #define FILE_EXISTS(FullFileName)          FileExists((char *)FullFileName)
 #define FILE_OPEN_FOR_READ(FullFileName)   FileOpenForRead((char *)FullFileName)
@@ -239,17 +243,22 @@ wxFile *FileOpenForRead(char *FullFileName);
 #define FILE_CLOSE(fd)                     fd->Close()
 #define FILE_DELETE(FullFileName)          delete_file(( char *)FullFileName)
 
-#define BTRXFIFOAVAILABLE                  (BTComPort->available())
-#define BTRXFIFOPOP                        BTComPort->read()
-#define BTSERPRINT(x)                      BTComPort->write(x)
-#define BTSERPRINT2(x,y)                   BTComPort->write(x,y)
-#define BTSERFLUSHRX()                     BTComPort->flush()
+// XMODEM transport hooks (COM or TCP depending on UseTcpPort)
+int  BT_AnyAvailable();
+int  BT_AnyReadByte();
+int  BT_AnyWrite(const char* buf, int len);
+void BT_AnyFlushRx();
+
+#define BTRXFIFOAVAILABLE                  (BT_AnyAvailable())
+#define BTRXFIFOPOP                        (BT_AnyReadByte())
+#define BTSERPRINT(x)                      do{ char _c=(char)(x); BT_AnyWrite(&_c,1);}while(0)
+#define BTSERPRINT2(x,y)                   BT_AnyWrite((const char*)(x),(int)(y))
+#define BTSERFLUSHRX()                     (BT_AnyFlushRx())
 
 #define DELAY_MS(ms)                       wxMilliSleep(ms)
 #define GET_TICK()                         (uint16_t)(clock()/10)
-
 #define YIELD_TO_PRIO_TASK()               Sleep(1);wxYieldIfNeeded()
-#define XMODEM_PACKET_SIZE 128
+#define XMODEM_PACKET_SIZE                 128
 
 PACK(typedef struct
 {
